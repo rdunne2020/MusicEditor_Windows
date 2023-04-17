@@ -1,0 +1,6 @@
+.vs
+out
+CMakeLists.txt.user
+CMakeSettings.json
+include
+lib
