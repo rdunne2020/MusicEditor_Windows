@@ -11,15 +11,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_PREFIX_PATH "C:/Qt/6.5.0/msvc2019_64")
 
 set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ${CMAKE_SOURCE_DIR}/lib)
-set(CMAKE_FIND_LIBRARY_SUFFIXES ".lib" ".dll")
 
-find_library(FLAC++ NAMES FLAC++ libFLAC++.lib FLAC++.lib)
-find_library(OGG NAMES ogg libogg)
+find_library(FLAC++ NAMES FLAC++ PATHS ${CMAKE_SOURCE_DIR}/lib)
+find_library(FLAC NAMES FLAC PATHS ${CMAKE_SOURCE_DIR}/lib)
+find_library(OGG NAMES ogg)
+
+message(${FLAC++})
+message(${FLAC})
+message(${OGG})
+message($ENV{PATH})
 
 message(${CMAKE_LIBRARY_PATH})
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+
+include_directories(${CMAKE_SOURCE_DIR}/include/)
 
 set(PROJECT_SOURCES
         main.cpp
@@ -29,6 +36,11 @@ set(PROJECT_SOURCES
         editor.cpp
         editor.h
         editor.ui
+        flaccontainer.cpp
+        flaccontainer.h
+        songlistobject.h
+        songlistobject.cpp
+        songlistobject.ui
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -52,7 +64,7 @@ else()
             ${PROJECT_SOURCES}
         )
     endif()
-endif()
+endif()                                         
 
 target_include_directories(WindowsMusicEditor PUBLIC 
     #${CMAKE_SOURCE_DIR}/include/FLAC++ 
@@ -60,10 +72,7 @@ target_include_directories(WindowsMusicEditor PUBLIC
     #${CMAKE_SOURCE_DIR}/include/ogg
     ${CMAKE_SOURCE_DIR}/include/
 )
-
-                                                
-
-target_link_libraries(WindowsMusicEditor PRIVATE Qt${QT_VERSION_MAJOR}::Widgets ${FLAC++} ${OGG})
+target_link_libraries(WindowsMusicEditor PRIVATE Qt${QT_VERSION_MAJOR}::Widgets ${FLAC++} ${FLAC} ${OGG})
 
 set_target_properties(WindowsMusicEditor PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com

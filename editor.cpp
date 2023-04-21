@@ -1,12 +1,13 @@
 #include "editor.h"
 #include "ui_editor.h"
-#include "FLAC++/metadata.h";
 
 Editor::Editor(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::Editor)
 {
     ui->setupUi(this);
+    // Since the text is white as set in main.cpp, make the edit box black
+    ui->songNames->setStyleSheet("QLineEdit{ background:black; };");
     connect(this->ui->songNames, &QListWidget::itemDoubleClicked, this, &Editor::editSong);
     connect(this->ui->songNames, &QListWidget::currentRowChanged, this, &Editor::getChangedRow);
     connect(this, &QDialog::accepted, this, &Editor::propagateChange);
