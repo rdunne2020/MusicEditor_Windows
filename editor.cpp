@@ -8,37 +8,66 @@ Editor::Editor(QWidget *parent) :
     ui->setupUi(this);
     // Since the text is white as set in main.cpp, make the edit box black
     ui->songNames->setStyleSheet("QLineEdit{ background:black; };");
-    connect(this->ui->songNames, &QListWidget::itemDoubleClicked, this, &Editor::editSong);
-    connect(this->ui->songNames, &QListWidget::currentRowChanged, this, &Editor::getChangedRow);
+    ui->discNums->setStyleSheet("QLineEdit{ background:black; };");
+    ui->trackNums->setStyleSheet("QLineEdit{ background:black; };");
+    connect(this->ui->songNames, &QListWidget::itemDoubleClicked, this, &Editor::editMetadata);
+    connect(this->ui->songNames, &QListWidget::currentRowChanged, this, &Editor::getChangedSongRow);
+    connect(this->ui->discNums, &QListWidget::itemDoubleClicked, this, &Editor::editMetadata);
+    connect(this->ui->discNums, &QListWidget::currentRowChanged, this, &Editor::getChangedDiscRow);
+    connect(this->ui->trackNums, &QListWidget::itemDoubleClicked, this, &Editor::editMetadata);
+    connect(this->ui->trackNums, &QListWidget::currentRowChanged, this, &Editor::getChangedTrackRow);
+
     connect(this, &QDialog::accepted, this, &Editor::propagateChange);
 }
 
-void Editor::setupList(const QStringList &formattedNames)
+void Editor::setupList(const QStringList &formattedNames, const QStringList& discNumbers, const QStringList& trackNumbers)
 {
-    for(auto fn : formattedNames)
+    for (uint32_t i = 0; i < formattedNames.count(); ++i)
     {
-        ui->songNames->addItem(fn);
+        ui->songNames->addItem(formattedNames.at(i));
+        ui->discNums->addItem(discNumbers.at(i));
+        ui->trackNums->addItem(trackNumbers.at(i));
     }
 }
 
-void Editor::editSong(QListWidgetItem* pUpdatedSong)
+void Editor::editMetadata(QListWidgetItem* pUpdatedSong)
 {
     pUpdatedSong->setFlags(pUpdatedSong->flags() | Qt::ItemIsEditable);
 }
 
-void Editor::getChangedRow(int rowChanged)
+void Editor::getChangedSongRow(int rowChanged)
 {
-    _changedRows.push_back(rowChanged);
+    _changedNameRows.push_back(rowChanged);
+}
+
+void Editor::getChangedDiscRow(int rowChanged)
+{
+    _changedDiscRows.push_back(rowChanged);
+}
+
+void Editor::getChangedTrackRow(int rowChanged)
+{
+    _changedTrackRows.push_back(rowChanged);
 }
 
 void Editor::propagateChange()
 {
-    for(auto row : _changedRows)
+    for(auto row : _changedNameRows)
     {
         QString newFileName = ui->songNames->item(row)->text();
-        emit(sendDataToMain(newFileName, row));
+        emit(sendDataToMain(newFileName, row, SONG_TITLE));
     }
-    _changedRows.clear();
+    for (auto row : _changedDiscRows)
+    {
+        QString newDiscNum = ui->discNums->item(row)->text();
+        emit(sendDataToMain(newDiscNum, row, DISC_NUM));
+    }
+    for (auto row : _changedTrackRows)
+    {
+        QString newTrackNum = ui->trackNums->item(row)->text();
+        emit(sendDataToMain(newTrackNum, row, TRACK_NUM));
+    }
+    _changedNameRows.clear();
 }
 
 Editor::~Editor()

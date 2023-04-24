@@ -7,12 +7,13 @@
 
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
-#include "editor.h"
 #include "songlistobject.h"
+#include "copystatusdialog.h"
 #include <iostream>
 #include <QDir>
 #include <QFile>
 #include <memory>
+#include <cmath>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -43,11 +44,17 @@ void MainWindow::launchManualEditor()
     {
         std::unique_ptr<Editor> pManualEditor = std::make_unique<Editor>();
         QStringList formattedFileNames;
+        QStringList discNumbers;
+        QStringList trackNumbers;
         for(int i = 0; i < ui->formattedNames->count(); ++i)
         {
-            formattedFileNames.append(ui->formattedNames->item(i)->text());
+            QListWidgetItem* pSongItem = ui->formattedNames->item(i);
+            SongListObject* pSongData = static_cast<SongListObject*>(ui->formattedNames->itemWidget(pSongItem));
+            formattedFileNames.append(pSongData->getSongName());
+            discNumbers.append(pSongData->getDiscNum());
+            trackNumbers.append(pSongData->getSongNum());
         }
-        pManualEditor->setupList(formattedFileNames);
+        pManualEditor->setupList(formattedFileNames, discNumbers, trackNumbers);
         connect(pManualEditor.get(), &Editor::sendDataToMain, this, &MainWindow::receiveManuallyChangedName);
         pManualEditor->exec();
         disconnect(pManualEditor.get(), &Editor::sendDataToMain, this, &MainWindow::receiveManuallyChangedName);
@@ -55,24 +62,23 @@ void MainWindow::launchManualEditor()
     }
 }
 
-void MainWindow::receiveManuallyChangedName(QString newName, int rowChanged)
+void MainWindow::receiveManuallyChangedName(QString newName, int rowChanged, Editor::SONG_DATA_TYPE data_type)
 {
-    ui->formattedNames->item(rowChanged)->setText(newName);
-}
-
-QByteArray MainWindow::readFileData(const QString &rFileName)
-{
-    // TODO: Clean up path generation, has to be a better way than using + operators
-    QString songName = _songDir.absolutePath() + "/" + rFileName + "." + _fileExt;
-    QFile songData(songName);
-    QByteArray binData;
-    songData.open(QIODevice::ReadOnly);
-    while(!songData.atEnd())
+    QListWidgetItem* pItemToUpdate = ui->formattedNames->item(rowChanged);
+    SongListObject* pSongObjectToUpdate = static_cast<SongListObject*>(
+        ui->formattedNames->itemWidget(pItemToUpdate));
+    if (data_type == Editor::SONG_TITLE)
     {
-        binData.append(songData.read(sizeof(char)));
+        pSongObjectToUpdate->setSongName(newName);
     }
-    std::cout << "Read in " << binData.size() << " bytes for: " << rFileName.toStdString() << std::endl;
-    return binData;
+    else if (data_type == Editor::DISC_NUM)
+    {
+        pSongObjectToUpdate->setDiscNum(newName);
+    }
+    else
+    {
+        pSongObjectToUpdate->setSongNum(newName);
+    }
 }
 
 /*****************************************
@@ -107,23 +113,49 @@ unsigned long MainWindow::writeNewFiles()
 
         std::cout << "Saving new songs to : " << saveDir.toStdString() << std::endl;
         unsigned long totalNumMbWritten = 0;
+
+        // Create progress dialog
+        copystatusdialog progress_bar;
+        connect(this, &MainWindow::send_songname_status, &progress_bar, &copystatusdialog::showCopyingFile);
+        connect(this, &MainWindow::update_progress, progress_bar.getProgressBar(), &QProgressBar::setValue);
+        progress_bar.show();
         for(int i = 0; i < ui->formattedNames->count(); ++i)
         {
             // Get the filename to read the data into memory and write it
             QString unformattedName = ui->unformattedNames->item(i)->text();
-            QByteArray currentBinaryData = readFileData(unformattedName);
-            // TODO: Clean up path generation, has to be a better way than using + operators
-            QString songName = saveDir + "/" + ui->formattedNames->item(i)->text() + "." + _fileExt;
-            QFile newSong(songName);
-            // Song Failed to write, print out the failure, don't stop the rest of it
-            if (!newSong.open(QIODevice::WriteOnly | QIODevice::Text))
+            QListWidgetItem* pCurrentItem = ui->formattedNames->item(i);
+            SongListObject* pSongObject = static_cast<SongListObject*>(ui->formattedNames->itemWidget(pCurrentItem));
+            QString new_song_title = pSongObject->getSongName();
+            QString new_disc_num = pSongObject->getDiscNum();
+            QString new_track_num = pSongObject->getSongNum();
+
+            // Update the Progress Bar:
+            emit(send_songname_status(new_song_title));
+            double prog_perc_decimal = static_cast<double>(i + 1) / static_cast<double>(ui->formattedNames->count());
+            int progress_percentage = std::round(prog_perc_decimal * 100);
+            emit(update_progress(progress_percentage));
+            // This needs to be called when using a modal and show() in order to handle drawing and updates
+            QApplication::processEvents();
+            try
             {
-                std::cerr << "Couldn't write new file: " << songName.toStdString() << std::endl;
+                pSongObject->flac_data.set_metadata("TITLE", new_song_title.toStdString());
+                pSongObject->flac_data.set_metadata("DISCNUMBER", new_disc_num.toStdString());
+                pSongObject->flac_data.set_metadata("TRACKNUMBER", new_track_num.toStdString());
             }
-            //qint64 numBytesWritten = newSong.write(_songData[i]);
-            qint64 numBytesWritten = newSong.write(currentBinaryData);
-            std::cout << "Wrote " << numBytesWritten << " bytes to " << songName.toStdString() << "\n";
-            totalNumMbWritten += (static_cast<double>(numBytesWritten) / 1000000.0);
+            catch(const FlacException& e)
+            {
+                std::cerr << e.what() << std::endl;
+            }
+
+            // Here is where we need to update the FLAC data with new stuff
+            // TODO: Clean up path generation, has to be a better way than using + operators
+
+            QFile old_song_file(_songDir.absolutePath() + "/" + unformattedName + "." + _fileExt);
+            QString newSongName = saveDir + "/" + new_song_title + "." + _fileExt;
+            if (old_song_file.copy(newSongName))
+            {
+                totalNumMbWritten = old_song_file.size();
+            }
         }
         return totalNumMbWritten;
     }
@@ -165,9 +197,6 @@ void MainWindow::editTitle(QString &rSongName, int trackNum, bool continuous)
             alreadyHasArrow = true;
         }
     }
-    // Increase the trackNum by one to start from 1
-    // QString wc = QString::fromStdString(std::to_string(trackNum+1));
-    // wordsInTitle.prepend(wc);
 
     if(continuous && !alreadyHasArrow)
     {
@@ -175,22 +204,22 @@ void MainWindow::editTitle(QString &rSongName, int trackNum, bool continuous)
     }
 
     rSongName = wordsInTitle.join(" ");
-
-    // Make sure a > are in the continued songs
 }
 
+// This is for refreshing the file list, typically just adds in a trailing > in the list widget
 void MainWindow::parseFiles(QStringList &rFileList)
 {
     QStringList formattedNames;
     // Set the song continuation to off for all the songs by default
     for(int i = 0; i < ui->unformattedNames->count(); ++i)
     {
-        QListWidgetItem *pSongName = ui->unformattedNames->item(i);
-        if(pSongName)
+        QListWidgetItem *pUnformattedSong = ui->unformattedNames->item(i);
+        if(pUnformattedSong && pUnformattedSong->checkState() == Qt::Checked)
         {
-            QString formattedName = pSongName->text();
-            editTitle(formattedName, i, pSongName->checkState());
-            formattedNames.push_back(formattedName);
+            QListWidgetItem* pFormattedSong = ui->formattedNames->item(i);
+            SongListObject* pSongObj = static_cast<SongListObject*>(ui->formattedNames->itemWidget(pFormattedSong));
+            QString formattedName = pSongObj->getSongName() + " >";
+            pSongObj->setSongName(formattedName);
         }
     }
     ui->formattedNames->addItems(formattedNames);
@@ -232,6 +261,7 @@ void MainWindow::fill_fileList(QStringList& rFilesForList)
     for(int i = 0; i < ui->unformattedNames->count(); ++i)
     {
         QListWidgetItem* pSongItem = ui->unformattedNames->item(i);
+        pSongItem->setFlags(pSongItem->flags() | Qt::ItemIsUserCheckable);
         // Create the FlacContainers for each song
         FlacContainer next_song((_songDir.absolutePath().toStdString() + "/" +
             rFilesForList.at(i).toStdString() + "." + _fileExt.toStdString()));
@@ -284,6 +314,10 @@ void MainWindow::fill_fileList(QStringList& rFilesForList)
             pSongItem->setCheckState(Qt::Unchecked);
             continuous_song = false;
         }
+        else
+        {
+            pSongItem->setCheckState(Qt::Checked);
+        }
 
         editTitle(qSongName, i, continuous_song);
         SongListObject* pSong_container = new SongListObject(ui->formattedNames);
@@ -306,7 +340,6 @@ void MainWindow::on_actionRefresh_triggered()
 {
     if(ui->unformattedNames->count() > 0 && ui->formattedNames->count() > 0)
     {
-        ui->formattedNames->clear();
         parseFiles(_filesInDir);
     }
 }

@@ -61,7 +61,37 @@ void FlacContainer::set_metadata(std::string comment_key, std::string comment_va
 		std::cerr << "Could Not Read FLAC File: " << _file_path << std::endl;
 		throw FlacException();
 	}
+
+	// In order to update the chain, you need to pass pointers. So I can't just modify an
+	// old comment block else I'm updating memory that no iterator points to. By making new iterators
+	// It modfies chain memory and lets me write the chain
+	FLAC::Metadata::Iterator it;
+	it.init(song_chain);
+	FLAC::Metadata::VorbisComment* pVc = nullptr;
+	do
+	{
+		FLAC::Metadata::Prototype* pPtype = nullptr;
+		pPtype = static_cast<FLAC::Metadata::Prototype*>(it.get_block());
+		if (pPtype->get_type() == FLAC__METADATA_TYPE_VORBIS_COMMENT)
+		{
+			pVc = static_cast<FLAC::Metadata::VorbisComment*>(pPtype);
+			break;
+		}
+	} while (it.next());
+
+	if (pVc == nullptr)
+	{
+		throw FlacException();
+	}
+
 	FLAC::Metadata::VorbisComment::Entry new_comment(comment_key.c_str(), comment_value.c_str());
-	_comment_block.replace_comment(new_comment, false);
-	song_chain.write();
+	bool updated_metadata = pVc->replace_comment(new_comment, false);
+
+	_comment_block = *pVc;
+
+	int meta_idx = _comment_block.find_entry_from(0, "TITLE");
+	FLAC::Metadata::VorbisComment::Entry e = _comment_block.get_comment(meta_idx);
+
+	bool write_status = song_chain.write(true, false);
+	std::cout << write_status << std::endl;
 }

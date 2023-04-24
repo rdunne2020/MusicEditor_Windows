@@ -41,6 +41,9 @@ set(PROJECT_SOURCES
         songlistobject.h
         songlistobject.cpp
         songlistobject.ui
+        copystatusdialog.h
+        copystatusdialog.cpp
+        copystatusdialog.ui
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
